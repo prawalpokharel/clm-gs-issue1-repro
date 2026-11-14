@@ -1,0 +1,43 @@
+diff --git a/train.py b/train.py
+index 30f9a2a..404a19b 100644
+--- a/train.py
++++ b/train.py
+@@ -17,6 +17,7 @@ import os
+ import sys
+ import json
+ import gc
++import resource
+ import psutil
+ 
+ # import faulthandler
+@@ -69,6 +70,22 @@ from utils.loss_utils import l1_loss
+ from densification import gsplat_densification
+ 
+ 
++def raise_open_file_limit():
++    """Raise the soft limit on open files to the hard limit.
++
++    With PyTorch's default "file_descriptor" sharing strategy, every tensor
++    that the DataLoader worker sends keeps a file descriptor open in this
++    process while the tensor is alive. Each camera has several tensors, so a
++    large --bsz can exceed the common soft limit of 1024. The pin memory
++    thread then fails with "received 0 items of ancdata"
++    (https://github.com/nyu-systems/CLM-GS/issues/1).
++    """
++    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
++    if soft < hard:
++        resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
++    print(f"Open file limit: {soft} -> {hard}")
++
++
+ def training(dataset_args, opt_args, pipe_args, args, log_file):
+     """
+     Main training loop for Gaussian Splatting with parameter offloading.
+@@ -97,6 +114,7 @@ def training(dataset_args, opt_args, pipe_args, args, log_file):
+     # Configure multiprocessing sharing strategy if needed
+     if args.sharing_strategy != "default":
+         torch.multiprocessing.set_sharing_strategy(args.sharing_strategy)
++    raise_open_file_limit()
+ 
+     # ------------------------------------------------------------------------
+     # 1.2: Initialize scene and gaussian model
