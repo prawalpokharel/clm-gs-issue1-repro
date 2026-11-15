@@ -4,6 +4,7 @@ Commands (MODAL_PROFILE picks the workspace that pays):
     modal run modal_clm.py::stage          # download Tanks&Temples truck to a Volume (CPU)
     modal run modal_clm.py::c1             # reproduce: bsz sweep at an open-file limit of 1024
     modal run modal_clm.py::c2             # candidate fixes at bsz 64, plus throughput/PSNR
+    modal run modal_clm.py::c3             # the final patch, same setup as c2
 
 Each training run is started with a soft RLIMIT_NOFILE set by the runner and
 watched by a thread that counts /proc/<pid>/fd every 0.2 s.
@@ -154,6 +155,7 @@ def _run_one(cfg: dict, data_dir: str) -> dict:
         "fd_series": samples[::step],
         "throughput_it_s": float(throughput[-1]) if throughput else None,
         "psnr": [float(x) for x in psnr],
+        "limit_message": re.findall(r"Raised open file limit from \d+ to \d+", output),
         "ancdata_error": "ancdata" in output,
         "errors": error_lines[:12],
         "output_tail": output[-3000:],
@@ -189,7 +191,7 @@ def run_configs(groups: list[dict]) -> list[dict]:
             results.append(res)
             print(json.dumps({k: res[k] for k in (
                 "name", "bsz", "nofile", "exit_code", "max_fds", "ancdata_error",
-                "throughput_it_s", "psnr", "wall_s")}), flush=True)
+                "throughput_it_s", "psnr", "limit_message", "wall_s")}), flush=True)
     return results
 
 
@@ -243,3 +245,17 @@ def c2() -> None:
         ]},
     ]
     _save(run_configs.remote(groups), "c2_fix")
+
+
+@app.local_entrypoint()
+def c3() -> None:
+    # The fix in its final form: inline in training(), and only when the
+    # file_descriptor sharing strategy is in use
+    groups = [{"patch": "clm-gs-final.patch", "configs": [
+        *[{"name": f"c3_final_nofile1024_r{r}", "bsz": 64, "nofile": 1024,
+           "iterations": 64 * 110} for r in [1, 2]],
+        # With file_system sharing the limit must be left alone
+        {"name": "c3_final_file_system_nofile1024", "bsz": 64, "nofile": 1024,
+         "iterations": 64 * 30, "extra": ["--sharing_strategy", "file_system"]},
+    ]}]
+    _save(run_configs.remote(groups), "c3_final")

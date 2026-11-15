@@ -1,0 +1,28 @@
+diff --git a/train.py b/train.py
+index 30f9a2a..f73d988 100644
+--- a/train.py
++++ b/train.py
+@@ -17,6 +17,7 @@ import os
+ import sys
+ import json
+ import gc
++import resource
+ import psutil
+ 
+ # import faulthandler
+@@ -98,6 +99,15 @@ def training(dataset_args, opt_args, pipe_args, args, log_file):
+     if args.sharing_strategy != "default":
+         torch.multiprocessing.set_sharing_strategy(args.sharing_strategy)
+ 
++    # With the "file_descriptor" strategy (the default), each tensor received
++    # from the dataloader worker keeps a file descriptor open, so a large
++    # --bsz can go over the usual soft limit of 1024.
++    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
++    if torch.multiprocessing.get_sharing_strategy() == "file_descriptor" and soft < hard:
++        resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
++        utils.print_rank_0(f"Raised open file limit from {soft} to {hard}")
++        log_file.write(f"Raised open file limit from {soft} to {hard}\n")
++
+     # ------------------------------------------------------------------------
+     # 1.2: Initialize scene and gaussian model
+     # ------------------------------------------------------------------------

@@ -53,16 +53,34 @@ because it can't open a module file to import it.
   descriptors per camera from 6 to 1 and made loading 5x faster in C0, but it
   changes `Camera` and was not tested on the real code.
 
+## Final patch (C3)
+
+After review the patch became `patches/clm-gs-final.patch` (10 lines). The
+limit is now raised inline in `training()`, only when the `file_descriptor`
+sharing strategy is in use, and the change is logged. Same setup as C2:
+
+| Setup | Open-file limit | Peak descriptors | Throughput (it/s) | Test PSNR |
+|---|---|---|---|---|
+| Final patch | 1,024 | 1,082 / 1,081 | 56.0 / 56.5 | 22.24 / 22.26 |
+| Final patch + `--sharing_strategy file_system` (1,920 images) | 1,024 | 66 | 77.8 | 19.61 |
+
+Both full runs logged "Raised open file limit from 1024 to 1048576" and
+matched the C2 patch runs. With `file_system` the limit was left unchanged,
+as intended. The short run's PSNR isn't comparable, because it trained on
+fewer images.
+
 ## Files
 
 | Path | What it is |
 |---|---|
 | `c0_fd_repro.py`, `modal_c0.py` | C0: CPU stand-in that mirrors the CLM-GS DataLoader, sweeps bsz and limits |
-| `modal_clm.py` | Modal A10 image (CUDA 12.4, torch 2.6, all submodules), data staging, C1 and C2 |
-| `patches/clm-gs-raise-nofile.patch` | The candidate fix, applies to 1119a10 |
+| `modal_clm.py` | Modal A10 image (CUDA 12.4, torch 2.6, all submodules), data staging, C1, C2 and C3 |
+| `patches/clm-gs-raise-nofile.patch` | The first version of the fix, tested in C2, applies to 1119a10 |
+| `patches/clm-gs-final.patch` | The final fix, tested in C3, applies to 1119a10 |
 | `results/c0_fd_repro_full.jsonl` | C0 sweep |
 | `results/c1_reproduce.jsonl` | C1: bsz sweep on the real code, with descriptor time series and tracebacks |
 | `results/c2_fix.jsonl` | C2: control, flag workaround, patch |
+| `results/c3_final.jsonl` | C3: final patch, and the check with `file_system` |
 
 C0 note: in the CPU stand-in the main process peaked at only 399 descriptors
 at bsz 64, yet the run hung at the 1024 limit. The stand-in has no pin-memory
@@ -73,7 +91,8 @@ run to count worker descriptors timed out without results.
 ## Cost
 
 From `modal billing report`: $1.02 for all six Modal apps (two image builds,
-data staging, both C0 runs, C1 and C2). A10G time was $0.42 of that.
+data staging, both C0 runs, C1 and C2). A10G time was $0.42 of that. C3's
+three training runs added 5.4 minutes on one A10G, plus image build and setup.
 
 ## Rerunning
 
@@ -85,10 +104,15 @@ downloads the Tanks&Temples truck scene (650 MB) into a Modal volume named
 modal run modal_clm.py::stage
 modal run modal_clm.py::c1
 modal run modal_clm.py::c2
+modal run modal_clm.py::c3
 modal run modal_c0.py
 ```
 
+The image uses Python 3.10. Modal's 2026.10 image builder no longer supports
+3.10, so on a workspace that uses it, set `MODAL_IMAGE_BUILDER_VERSION=2025.06`
+before these commands.
+
 ## Licence
 
-MIT for the scripts here (see `LICENSE`). `patches/clm-gs-raise-nofile.patch`
-is a change to CLM-GS and follows the CLM-GS licence.
+MIT for the scripts here (see `LICENSE`). The files in `patches/` are changes
+to CLM-GS and follow the CLM-GS licence.
